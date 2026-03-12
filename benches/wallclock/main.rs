@@ -1,0 +1,9 @@
+mod build;
+mod insert_existing;
+
+use criterion::criterion_main;
+
+use crate::build::bench_build;
+use crate::insert_existing::bench_insert_existing;
+
+criterion_main!(bench_build, bench_insert_existing);

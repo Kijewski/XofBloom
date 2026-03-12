@@ -1,0 +1,49 @@
+[package]
+name = "xofbloom"
+version = "0.1.0"
+edition = "2024"
+authors = ["René Kijewski <crates.io@k6i.de>"]
+license = "ISC OR MIT OR Apache-2.0"
+repository = "https://github.com/Kijewski/XofBloom"
+description = "A remarkably slow Bloom filter implementation using the extendable output of BLAKE3."
+rust-version = "1.85.1"
+
+[[bench]]
+name = "instructions"
+harness = false
+
+[[bench]]
+name = "wallclock"
+harness = false
+
+[dependencies]
+bytemuck = "1"
+libm = "0.2"
+
+blake3 = { version = "1", default-features = false, optional = true }
+getrandom = { version = "0.4", default-features = false, optional = true }
+
+[dev-dependencies]
+benches.path = "benches"
+criterion = "0.8.2"
+gungraun = "0.17.2"
+
+[features]
+default = ["blake3", "new", "std"]
+
+## implement features found in `alloc` such as runtime-allocated `XofBloom` instances
+alloc = []
+## implement the `Hasher` trait for `blake3::Hasher`
+blake3 = ["dep:blake3"]
+## implement `XofBloom::new()` that uses a random seed
+new = ["dep:getrandom"]
+##  implement features found in `std`
+std = ["alloc", "blake3?/std", "getrandom?/std"]
+
+[profile.bench]
+debug = true
+strip = false
+
+[workspace]
+members = [".", "benches"]
+resolver = "3"
