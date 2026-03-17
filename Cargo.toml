@@ -28,11 +28,14 @@ libm = "0.2"
 
 blake3 = { version = "1", default-features = false, optional = true }
 getrandom = { version = "0.4", default-features = false, optional = true }
+memmap2 = { version = "0.9", default-features = false, optional = true }
+page_size = { version = "0.6.0", default-features = false, optional = true, features = ["no_std"] }
 
 [dev-dependencies]
 benches.path = "benches"
 criterion = "0.8.2"
 gungraun = "0.17.2"
+tempfile = "3.27.0"
 
 [features]
 default = ["blake3", "new", "std"]
@@ -41,6 +44,8 @@ default = ["blake3", "new", "std"]
 alloc = []
 ## implement the `Hasher` trait for `blake3::Hasher`
 blake3 = ["dep:blake3"]
+## implement functions to use file-system backed Bloom filter instances
+mmap = ["std", "dep:memmap2", "dep:page_size"]
 ## implement `XofBloom::new()` that uses a random seed
 new = ["dep:getrandom"]
 ##  implement features found in `std`
@@ -56,7 +61,7 @@ resolver = "3"
 
 [workspace.lints.rust]
 unknown_lints = { level = "allow", priority = -1 }
-unsafe_code = { level = "forbid", priority = -1 }
+unsafe_code = { level = "deny", priority = -1 }
 
 absolute_paths_not_starting_with_crate = "warn"
 elided_lifetimes_in_paths = "warn"

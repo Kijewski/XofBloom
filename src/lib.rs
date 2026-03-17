@@ -3,7 +3,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), no_std)]
-
+#![cfg_attr(not(feature = "mmap"), forbid(unsafe_code))]
 #![doc = include_str!("../README.md")]
 
 #[cfg(feature = "alloc")]
@@ -12,10 +12,12 @@ extern crate alloc;
 extern crate std;
 
 mod calc;
+#[cfg(feature = "mmap")]
+pub mod mmap;
 
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering::Relaxed;
-use core::{fmt, hash, mem, num};
+use core::{error, fmt, hash, mem, num};
 
 use bytemuck::Zeroable;
 
@@ -61,11 +63,12 @@ impl<S: BuildableStorage, H: Hasher + Default> CustomBloom<S, H> {
     ///
     /// The instance is seeded with a runtime generated random number.
     #[cfg(feature = "new")]
-    pub fn new(num_items: num::NonZero<usize>, error_rate: f32) -> Self {
-        let mut seed = [mem::MaybeUninit::uninit(); 24];
-        #[allow(clippy::unwrap_used)] // should be infallible for all realistic use cases
-        let seed = getrandom::fill_uninit(&mut seed).unwrap();
-        Self::new_with_seed(seed, num_items, error_rate)
+    pub fn new(num_items: num::NonZero<usize>, error_rate: f32) -> Result<Self, AllocError> {
+        Self::new_with_seed(
+            random_seed(&mut [mem::MaybeUninit::uninit(); _]),
+            num_items,
+            error_rate,
+        )
     }
 
     /// Initialize a new Bloom filter instance for an expected item count `num_items` and an
@@ -73,7 +76,11 @@ impl<S: BuildableStorage, H: Hasher + Default> CustomBloom<S, H> {
     ///
     /// Using an unseeded [`Hasher`] makes it easier for attackers to generate false-positive
     /// results. Depending on the use case, this can aid denial-of-service attacks.
-    pub fn new_with_seed<V>(seed: &V, num_items: num::NonZero<usize>, error_rate: f32) -> Self
+    pub fn new_with_seed<V>(
+        seed: &V,
+        num_items: num::NonZero<usize>,
+        error_rate: f32,
+    ) -> Result<Self, AllocError>
     where
         V: hash::Hash + ?Sized,
     {
@@ -83,10 +90,19 @@ impl<S: BuildableStorage, H: Hasher + Default> CustomBloom<S, H> {
     }
 }
 
+#[cfg(feature = "new")]
+fn random_seed(seed: &mut [mem::MaybeUninit<u8>; 24]) -> &mut [u8] {
+    #[allow(clippy::unwrap_used)] // should be infallible for all realistic use cases
+    getrandom::fill_uninit(seed).unwrap()
+}
+
 impl<S: BuildableStorage, H: Default> CustomBloom<S, H> {
     /// Initialize a new Bloom filter instance for an expected item count `num_items` and an
     /// acceptable `error_rate`.
-    pub fn new_unseeded(num_items: num::NonZero<usize>, error_rate: f32) -> Self {
+    pub fn new_unseeded(
+        num_items: num::NonZero<usize>,
+        error_rate: f32,
+    ) -> Result<Self, AllocError> {
         let hasher = H::default();
         Self::new_with_hasher(hasher, num_items, error_rate)
     }
@@ -99,9 +115,13 @@ impl<S: BuildableStorage, H> CustomBloom<S, H> {
     /// The [`Hasher`] should be pre-seeded, as using an unseeded `Hasher` makes it easier for
     /// attackers to generate false-positive results. Depending on the use case, this can aid
     /// denial-of-service attacks.
-    pub fn new_with_hasher(hasher: H, num_items: num::NonZero<usize>, error_rate: f32) -> Self {
-        let storage = S::new_storage(optimal_cell_count(num_items.get(), error_rate));
-        Self::new_with_storage(storage, hasher, num_items)
+    pub fn new_with_hasher(
+        hasher: H,
+        num_items: num::NonZero<usize>,
+        error_rate: f32,
+    ) -> Result<Self, AllocError> {
+        let storage = S::new_storage(optimal_cell_count(num_items.get(), error_rate))?;
+        Ok(Self::new_with_storage(storage, hasher, num_items))
     }
 }
 
@@ -257,30 +277,44 @@ pub trait Hasher: Clone {
 }
 
 /// A storage that can be allocated at runtime.
-pub trait BuildableStorage: AsRef<[AtomicUsize]> {
+pub trait BuildableStorage: AsRef<[AtomicUsize]> + Sized {
     /// Allocate a new storage with a length of `size`.
     ///
     /// It is acceptable to round the `size` to the next opportune number, e.g. to the next
     /// power-of-two.
-    fn new_storage(size: num::NonZero<usize>) -> Self;
+    fn new_storage(size: num::NonZero<usize>) -> Result<Self, AllocError>;
 }
 
 #[cfg(feature = "alloc")]
 impl BuildableStorage for alloc::boxed::Box<[AtomicUsize]> {
-    fn new_storage(size: num::NonZero<usize>) -> Self {
-        <alloc::vec::Vec<AtomicUsize>>::new_storage(size).into_boxed_slice()
+    fn new_storage(size: num::NonZero<usize>) -> Result<Self, AllocError> {
+        Ok(<alloc::vec::Vec<AtomicUsize>>::new_storage(size)?.into_boxed_slice())
     }
 }
 
 #[cfg(feature = "alloc")]
 impl BuildableStorage for alloc::vec::Vec<AtomicUsize> {
-    fn new_storage(size: num::NonZero<usize>) -> Self {
+    fn new_storage(size: num::NonZero<usize>) -> Result<Self, AllocError> {
         let mut storage = alloc::vec::Vec::new();
-        storage.reserve_exact(size.get());
-        storage.resize_with(size.get(), AtomicUsize::default);
         storage
+            .try_reserve_exact(size.get())
+            .map_err(|_| AllocError)?;
+        storage.resize_with(size.get(), AtomicUsize::default);
+        Ok(storage)
     }
 }
+
+/// Could not allocate storage for Bloom filter
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AllocError;
+
+impl fmt::Display for AllocError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad("could not allocate storage for Bloom filter")
+    }
+}
+
+impl error::Error for AllocError {}
 
 #[cfg(feature = "blake3")]
 impl Hasher for Blake3 {
@@ -297,9 +331,6 @@ impl Hasher for Blake3 {
 
 #[test]
 fn read_words() {
-    #[allow(macro_use_extern_crate)]
-    extern crate std;
-
     use std::vec::Vec;
 
     const ERROR_RATE: f32 = 0.001;
@@ -314,7 +345,7 @@ fn read_words() {
         .collect();
 
     let mut false_positives = 0usize;
-    let bloom = XofBloom::new(words.len().try_into().unwrap(), ERROR_RATE);
+    let bloom = XofBloom::new(words.len().try_into().unwrap(), ERROR_RATE).unwrap();
     for word in &words {
         if bloom.insert(word) {
             false_positives += 1;

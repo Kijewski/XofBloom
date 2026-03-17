@@ -2,7 +2,7 @@ use crate::{BloomFilter, Dict, ERROR_RATE, FastBloom, XofBloom, read_dict};
 
 pub fn xofbloom() -> (XofBloom, Dict) {
     let words = read_dict();
-    let bloom = XofBloom::new_unseeded(read_dict().len().try_into().unwrap(), ERROR_RATE);
+    let bloom = XofBloom::new_unseeded(read_dict().len().try_into().unwrap(), ERROR_RATE).unwrap();
     (bloom, words)
 }
 
