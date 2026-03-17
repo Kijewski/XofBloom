@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 mod build;
 mod insert_existing;
 

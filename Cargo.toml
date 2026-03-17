@@ -1,3 +1,5 @@
+lints.workspace = true
+
 [package]
 name = "xofbloom"
 version = "0.1.0"
@@ -7,6 +9,10 @@ license = "ISC OR MIT OR Apache-2.0"
 repository = "https://github.com/Kijewski/XofBloom"
 description = "A remarkably slow Bloom filter implementation using the extendable output of BLAKE3."
 rust-version = "1.85.1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--generate-link-to-definition", "--cfg=docsrs"]
 
 [[bench]]
 name = "instructions"
@@ -47,3 +53,45 @@ strip = false
 [workspace]
 members = [".", "benches"]
 resolver = "3"
+
+[workspace.lints.rust]
+unknown_lints = { level = "allow", priority = -1 }
+unsafe_code = { level = "forbid", priority = -1 }
+
+absolute_paths_not_starting_with_crate = "warn"
+elided_lifetimes_in_paths = "warn"
+explicit_outlives_requirements = "warn"
+meta_variable_misuse = "warn"
+missing_copy_implementations = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+non_ascii_idents = "warn"
+noop_method_call = "warn"
+rust_2024_compatibility = "warn"
+single_use_lifetimes = "warn"
+trivial_casts = "warn"
+unreachable_pub = "warn"
+unused_extern_crates = "warn"
+unused_lifetimes = "warn"
+unused_results = "warn"
+warnings = "warn"
+
+## the lint is broken
+# unused_crate_dependencies = "warn"
+
+[workspace.lints.clippy]
+collapsible_match = "warn"
+expect_used = "warn"
+match_bool = "warn"
+match_ref_pats = "warn"
+match_same_arms = "warn"
+match_single_binding = "warn"
+needless_bool = "deny"
+needless_late_init = "warn"
+needless_match = "warn"
+redundant_guards = "warn"
+redundant_pattern = "warn"
+redundant_pattern_matching = "warn"
+single_match = "warn"
+single_match_else = "warn"
+unwrap_used = "warn"

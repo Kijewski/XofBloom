@@ -10,3 +10,6 @@ publish = false
 xofbloom.path = ".."
 bloomfilter = "3.0.1"
 fastbloom = "0.17.0"
+
+[lints.rust]
+missing_docs = "allow"

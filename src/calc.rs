@@ -1,9 +1,21 @@
+#![allow(clippy::inconsistent_digit_grouping)] // makes percentages easier to read
+
 use core::f32::consts::LN_2;
 use core::num::{FpCategory, NonZero};
 
+#[cfg(feature = "std")]
+use libm as _;
 #[cfg(not(feature = "std"))]
 use libm::{ceilf, logf};
 
+/// For an expected `num_items` and an acceptable `error_rate`, how big should the backing
+/// [`AtomicUsize`][core::sync::atomic::AtomicUsize] slice be?
+///
+/// The argument `num_items` is clamped between `1` and (a bit less than) [`isize::MAX`].
+///
+/// The argument `error_rate` is clamped between `0.00001` and `0.1` (0.001% to `10%`).
+/// If the argument is `NaN`, the lower bound is used. If the argument is negative or positive
+/// infinity, then the lower or upper bound is used, respectively.
 pub fn optimal_cell_count(num_items: usize, error_rate: f32) -> NonZero<usize> {
     let num_items = num_items.clamp(MIN_CELL_COUNT, MAX_CELL_COUNT);
     let error_rate = clamp_error_rate(error_rate);
@@ -13,6 +25,10 @@ pub fn optimal_cell_count(num_items: usize, error_rate: f32) -> NonZero<usize> {
     clamp_cell_count(cell_count)
 }
 
+/// For an expected `num_items` and a [`AtomicUsize`][core::sync::atomic::AtomicUsize] slice length,
+/// how many hash bits should be used per entry?
+///
+/// The `cell_count` should be calculated with [`optimal_cell_count()`].
 pub fn optimal_hash_count(num_items: usize, cell_count: usize) -> NonZero<u8> {
     let bits = (cell_count as f32) * (BITS_PER_CELL as f32);
     let hash_count = ceilf((bits / (num_items as f32)) * LN_2) as u8;
@@ -33,20 +49,26 @@ fn ceilf(x: f32) -> f32 {
 
 const fn clamp_cell_count(cell_count: usize) -> NonZero<usize> {
     if cell_count <= MIN_CELL_COUNT {
+        #[allow(clippy::unwrap_used)] // cannot fail: we know that `MIN_CELL_COUNT >= 1`
         NonZero::new(MIN_CELL_COUNT).unwrap()
     } else if cell_count >= MAX_CELL_COUNT {
+        #[allow(clippy::unwrap_used)] // cannot fail: we know that `MAX_CELL_COUNT >= 1`
         NonZero::new(MAX_CELL_COUNT).unwrap()
     } else {
+        #[allow(clippy::unwrap_used)] // cannot fail: we checked that `cell_count >= 1`
         NonZero::new(cell_count).unwrap()
     }
 }
 
 const fn clamp_hash_count(hash_count: u8) -> NonZero<u8> {
     if hash_count <= MIN_HASH_COUNT {
+        #[allow(clippy::unwrap_used)] // cannot fail: we know that `MIN_HASH_COUNT >= 1`
         NonZero::new(MIN_HASH_COUNT).unwrap()
     } else if hash_count >= MAX_HASH_COUNT {
+        #[allow(clippy::unwrap_used)] // cannot fail: we know that `MAX_HASH_COUNT >= 1`
         NonZero::new(MAX_HASH_COUNT).unwrap()
     } else {
+        #[allow(clippy::unwrap_used)] // cannot fail: we checked that `hash_count >= 1`
         NonZero::new(hash_count).unwrap()
     }
 }

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: ISC OR MIT OR Apache-2.0
 // SPDX-FileCopyrightText: 2026 René Kijewski <crates.io@k6i.de>
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), no_std)]
+
+#![doc = include_str!("../README.md")]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -19,17 +22,26 @@ use bytemuck::Zeroable;
 use crate::calc::{BITS_PER_CELL, MAX_HASH_COUNT};
 pub use crate::calc::{optimal_cell_count, optimal_hash_count};
 
+/// A Bloom filter that uses the extendable output of [`blake3`], and allocates its memory at
+/// runtime using a [<code>box</code>ed][Box] slice.
 #[cfg(all(feature = "alloc", feature = "blake3"))]
 pub type XofBloom = BoxBloom<Blake3>;
 
+/// A Bloom filter implementation with a custom [`Hasher`] that allocates its memory at
+/// runtime using a [<code>box</code>ed][Box] slice.
 #[cfg(feature = "alloc")]
-pub type BoxBloom<H> = CustomBloom<alloc::boxed::Box<[AtomicUsize]>, H>;
+#[allow(type_alias_bounds)] // Not enforced, but still documented.
+pub type BoxBloom<H: Hasher> = CustomBloom<alloc::boxed::Box<[AtomicUsize]>, H>;
 
-pub type SliceBloom<'a, H> = CustomBloom<&'a [AtomicUsize], H>;
+/// A Bloom filter implementation with a custom [`Hasher`], and a shared slice as backing memory.
+#[allow(type_alias_bounds)] // Not enforced, but still documented.
+pub type SliceBloom<'a, H: Hasher> = CustomBloom<&'a [AtomicUsize], H>;
 
+/// The default [`Hasher`] of this project.
 #[cfg(feature = "blake3")]
 pub type Blake3 = blake3::Hasher;
 
+/// A very slow Bloom filter implementation.
 #[derive(Clone)]
 pub struct CustomBloom<S, H> {
     storage: S,
@@ -44,13 +56,23 @@ impl<S, H> fmt::Debug for CustomBloom<S, H> {
 }
 
 impl<S: BuildableStorage, H: Hasher + Default> CustomBloom<S, H> {
+    /// Initialize a new Bloom filter instance for an expected item count `num_items` and an
+    /// acceptable `error_rate`.
+    ///
+    /// The instance is seeded with a runtime generated random number.
     #[cfg(feature = "new")]
     pub fn new(num_items: num::NonZero<usize>, error_rate: f32) -> Self {
         let mut seed = [mem::MaybeUninit::uninit(); 24];
+        #[allow(clippy::unwrap_used)] // should be infallible for all realistic use cases
         let seed = getrandom::fill_uninit(&mut seed).unwrap();
         Self::new_with_seed(seed, num_items, error_rate)
     }
 
+    /// Initialize a new Bloom filter instance for an expected item count `num_items` and an
+    /// acceptable `error_rate`.
+    ///
+    /// Using an unseeded [`Hasher`] makes it easier for attackers to generate false-positive
+    /// results. Depending on the use case, this can aid denial-of-service attacks.
     pub fn new_with_seed<V>(seed: &V, num_items: num::NonZero<usize>, error_rate: f32) -> Self
     where
         V: hash::Hash + ?Sized,
@@ -62,6 +84,8 @@ impl<S: BuildableStorage, H: Hasher + Default> CustomBloom<S, H> {
 }
 
 impl<S: BuildableStorage, H: Default> CustomBloom<S, H> {
+    /// Initialize a new Bloom filter instance for an expected item count `num_items` and an
+    /// acceptable `error_rate`.
     pub fn new_unseeded(num_items: num::NonZero<usize>, error_rate: f32) -> Self {
         let hasher = H::default();
         Self::new_with_hasher(hasher, num_items, error_rate)
@@ -69,6 +93,12 @@ impl<S: BuildableStorage, H: Default> CustomBloom<S, H> {
 }
 
 impl<S: BuildableStorage, H> CustomBloom<S, H> {
+    /// Initialize a new Bloom filter instance with a custom `hasher` for an expected item count
+    /// `num_items` and an acceptable `error_rate`.
+    ///
+    /// The [`Hasher`] should be pre-seeded, as using an unseeded `Hasher` makes it easier for
+    /// attackers to generate false-positive results. Depending on the use case, this can aid
+    /// denial-of-service attacks.
     pub fn new_with_hasher(hasher: H, num_items: num::NonZero<usize>, error_rate: f32) -> Self {
         let storage = S::new_storage(optimal_cell_count(num_items.get(), error_rate));
         Self::new_with_storage(storage, hasher, num_items)
@@ -76,6 +106,15 @@ impl<S: BuildableStorage, H> CustomBloom<S, H> {
 }
 
 impl<S: AsRef<[AtomicUsize]>, H> CustomBloom<S, H> {
+    /// Initialize a new Bloom filter instance with a custom backing memory `storage` for an
+    /// expected item count `num_items` and an acceptable `error_rate`.
+    ///
+    /// The storage can be owned, e.g. <code>[Vec]&lt;&#x5b;[AtomicUsize]&#x5d;&gt;</code>,
+    /// or shared, e.g. `&[AtomicUsize]`.
+    ///
+    /// The [`Hasher`] should be pre-seeded, as using an unseeded `Hasher` makes it easier for
+    /// attackers to generate false-positive results. Depending on the use case, this can aid
+    /// denial-of-service attacks.
     pub fn new_with_storage(storage: S, hasher: H, num_items: num::NonZero<usize>) -> Self {
         let hash_count = optimal_hash_count(num_items.get(), storage.as_ref().len());
         Self::new_with_hash_count(hash_count, storage, hasher)
@@ -83,6 +122,14 @@ impl<S: AsRef<[AtomicUsize]>, H> CustomBloom<S, H> {
 }
 
 impl<S, H> CustomBloom<S, H> {
+    /// Initialize a new Bloom filter instance with custom arguments.
+    ///
+    /// Use [`optimal_cell_count()`] to calculate the `storage` size.
+    /// Use [`optimal_hash_count()`] to calculate the `hash_count`.
+    ///
+    /// The [`Hasher`] should be pre-seeded, as using an unseeded `Hasher` makes it easier for
+    /// attackers to generate false-positive results. Depending on the use case, this can aid
+    /// denial-of-service attacks.
     #[inline]
     pub fn new_with_hash_count(hash_count: num::NonZero<u8>, storage: S, hasher: H) -> Self {
         Self {
@@ -92,6 +139,9 @@ impl<S, H> CustomBloom<S, H> {
         }
     }
 
+    /// Deconstruct this Bloom filter into its parts: `hash_count`, `storage` and `hasher`.
+    ///
+    /// Cf. [`CustomBloom::new_with_hash_count()`].
     #[inline]
     pub fn deconstruct(self) -> (num::NonZero<u8>, S, H) {
         let Self {
@@ -118,6 +168,7 @@ impl<S: AsRef<[AtomicUsize]>, H: Hasher> CustomBloom<S, H> {
         contains(self.storage.as_ref(), indices)
     }
 
+    /// Make this Bloom filter instance sharable by referencing the backing memory.
     pub fn share(&self) -> SliceBloom<'_, H> {
         SliceBloom {
             storage: self.storage.as_ref(),
@@ -192,13 +243,25 @@ impl<H: Hasher> hash::Hasher for Digester<'_, H> {
     }
 }
 
+/// The hasher to use by the Bloom filter instance.
 pub trait Hasher: Clone {
+    /// Update the internal state.
+    ///
+    /// Cf. [`Digest::update()`](https://docs.rs/digest/0.11.2/digest/trait.Digest.html#tymethod.update).
     fn update(&mut self, data: &[u8]);
 
+    /// Finalize the internal state and fill `out` with hash bits.
+    ///
+    /// Cf. [`ExtendableOutput::finalize_xof_into()`](https://docs.rs/digest/0.11.2/digest/trait.ExtendableOutput.html#method.finalize_xof_into).
     fn finalize_xof_into(self, out: &mut [u8]);
 }
 
+/// A storage that can be allocated at runtime.
 pub trait BuildableStorage: AsRef<[AtomicUsize]> {
+    /// Allocate a new storage with a length of `size`.
+    ///
+    /// It is acceptable to round the `size` to the next opportune number, e.g. to the next
+    /// power-of-two.
     fn new_storage(size: num::NonZero<usize>) -> Self;
 }
 
@@ -223,7 +286,7 @@ impl BuildableStorage for alloc::vec::Vec<AtomicUsize> {
 impl Hasher for Blake3 {
     #[inline]
     fn update(&mut self, data: &[u8]) {
-        self.update(data);
+        let _: &mut _ = self.update(data);
     }
 
     #[inline]
@@ -234,6 +297,7 @@ impl Hasher for Blake3 {
 
 #[test]
 fn read_words() {
+    #[allow(macro_use_extern_crate)]
     extern crate std;
 
     use std::vec::Vec;

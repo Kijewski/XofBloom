@@ -13,15 +13,14 @@ criterion_group!(
 macro_rules! benchers {
     ($($name:ident),* $(,)?) => { $(
         fn $name(c: &mut Criterion) {
-            let mut g = c.benchmark_group("insert_existing");
-
             let words = read_dict();
-            g.throughput(Throughput::ElementsAndBytes {
+
+            let mut g = c.benchmark_group("insert_existing");
+            let _ = g.throughput(Throughput::ElementsAndBytes {
                 elements: words.len() as u64,
                 bytes: words.iter().map(|s| s.len() as u64).sum(),
             });
-
-            g.bench_function(stringify!($name), |b| {
+            let _ = g.bench_function(stringify!($name), |b| {
                 b.iter_custom(|iters| {
                     custom(iters, benches::filled_dict::$name, benches::insert::$name)
                 });
