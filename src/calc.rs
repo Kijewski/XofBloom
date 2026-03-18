@@ -13,7 +13,7 @@ use libm::{ceilf, logf};
 ///
 /// The argument `num_items` is clamped between `1` and (a bit less than) [`isize::MAX`].
 ///
-/// The argument `error_rate` is clamped between `0.00001` and `0.1` (0.001% to `10%`).
+/// The argument `error_rate` is clamped between `0.00001` and `0.1` (0.001% to 10%).
 /// If the argument is `NaN`, the lower bound is used. If the argument is negative or positive
 /// infinity, then the lower or upper bound is used, respectively.
 pub fn optimal_cell_count(num_items: usize, error_rate: f32) -> NonZero<usize> {

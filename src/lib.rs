@@ -3,7 +3,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "mmap"), forbid(unsafe_code))]
+#![cfg_attr(not(any(miri, test, feature = "mmap")), forbid(unsafe_code))]
 #![doc = include_str!("../README.md")]
 
 #[cfg(feature = "alloc")]
@@ -331,22 +331,24 @@ impl Hasher for Blake3 {
 
 #[test]
 fn read_words() {
-    use std::vec::Vec;
+    dict_test(|num_items, error_rate| XofBloom::new(num_items, error_rate).unwrap());
+}
 
+#[cfg(test)]
+#[track_caller]
+fn dict_test<F, S, H>(builder: F)
+where
+    F: FnOnce(num::NonZero<usize>, f32) -> CustomBloom<S, H>,
+    S: AsRef<[AtomicUsize]>,
+    H: Hasher,
+{
     const ERROR_RATE: f32 = 0.001;
 
-    let words = std::fs::read_to_string("/usr/share/dict/words").unwrap();
-    let words: Vec<_> = words
-        .lines()
-        .filter_map(|s| match s.trim() {
-            "" => None,
-            s => Some(s),
-        })
-        .collect();
+    let words = test_dict();
+    let bloom = builder(words.len().try_into().unwrap(), ERROR_RATE);
 
     let mut false_positives = 0usize;
-    let bloom = XofBloom::new(words.len().try_into().unwrap(), ERROR_RATE).unwrap();
-    for word in &words {
+    for word in words {
         if bloom.insert(word) {
             false_positives += 1;
         }
@@ -358,4 +360,42 @@ fn read_words() {
     );
 
     assert!(false_positives <= (words.len() as f32 * ERROR_RATE).ceil() as usize);
+
+    for word in words {
+        assert!(bloom.insert(word));
+    }
+}
+
+#[cfg(test)]
+fn test_dict() -> &'static std::vec::Vec<&'static str> {
+    use std::string::String;
+    use std::sync::OnceLock;
+
+    const DICT_PATH: &str = "/usr/share/dict/words";
+
+    static FILE: OnceLock<String> = OnceLock::new();
+    static DICT: OnceLock<Vec<&'static str>> = OnceLock::new();
+
+    DICT.get_or_init(|| {
+        FILE.get_or_init(|| {
+            if cfg!(not(miri)) {
+                std::fs::read_to_string(DICT_PATH).unwrap()
+            } else {
+                // RATIONALE: checking strings is sooo slow with miri
+                let words = std::fs::read(DICT_PATH).unwrap();
+                // SAFETY: this code is _NOT SAFE_, but it should not matter in a test ¯\_(ツ)_/¯
+                #[allow(unsafe_code)]
+                unsafe {
+                    String::from_utf8_unchecked(words)
+                }
+            }
+        })
+        .lines()
+        .filter_map(|s| match s.trim() {
+            "" => None,
+            s => Some(s),
+        })
+        .take(if cfg!(not(miri)) { 100_000 } else { 1000 })
+        .collect()
+    })
 }

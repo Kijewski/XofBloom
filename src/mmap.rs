@@ -222,38 +222,12 @@ fn mapped_memory(result: io::Result<MmapMut>) -> Result<Mmap, AllocError> {
 
 #[test]
 fn read_words_mmap() {
-    use std::vec::Vec;
-
-    const ERROR_RATE: f32 = 0.001;
-
-    let words = std::fs::read_to_string("/usr/share/dict/words").unwrap();
-    let words: Vec<_> = words
-        .lines()
-        .filter_map(|s| match s.trim() {
-            "" => None,
-            s => Some(s),
-        })
-        .collect();
-
-    let file = LockedFile {
-        file: tempfile::tempfile().unwrap(),
-        shared: false,
-        resize: true,
-    };
-
-    let mut false_positives = 0usize;
-    let bloom =
-        MmapXofBloom::new_in_file(file, words.len().try_into().unwrap(), ERROR_RATE).unwrap();
-    for word in &words {
-        if bloom.insert(word) {
-            false_positives += 1;
-        }
-    }
-
-    std::eprintln!(
-        "false positives: {false_positives} == {:.3}%",
-        false_positives as f32 / words.len() as f32 * 100.0,
-    );
-
-    assert!(false_positives <= (words.len() as f32 * ERROR_RATE).ceil() as usize);
+    crate::dict_test(|num_items, error_rate| {
+        let file = LockedFile {
+            file: tempfile::tempfile().unwrap(),
+            shared: false,
+            resize: true,
+        };
+        MmapXofBloom::new_in_file(file, num_items, error_rate).unwrap()
+    })
 }
