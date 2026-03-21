@@ -205,7 +205,7 @@ impl<T: MmapAsRawDesc> IntoMmap for T {
 
 fn mmap_options(size: std::num::NonZero<usize>) -> MmapOptions {
     let mut options = MmapOptions::new();
-    let _ = options.len((size.get() * BITS_PER_CELL).next_multiple_of(page_size::get()));
+    let _ = options.len((size.get() * size_of::<AtomicUsize>()).next_multiple_of(page_size::get()));
     let _ = options.no_reserve_swap();
     options
 }
